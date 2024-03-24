@@ -3,8 +3,9 @@ import sys
 import math
 import random
 
-# Initialize Pygame
+# Initialize Pygame and Mixer
 pygame.init()
+pygame.mixer.init()
 
 # Screen dimensions
 SCREEN_WIDTH, SCREEN_HEIGHT = 800, 600
@@ -14,18 +15,31 @@ screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
 WHITE = (255, 255, 255)
 BLACK = (0, 0, 0)
 
+# Load and play background music
+pygame.mixer.music.load('audios/BGM.mp3')
+pygame.mixer.music.play(-1)
+
 # Game state
 game_state = "playing"  # Can be "playing" or "game_over"
 
 # Dinosaur variables
 dino_x, dino_y = 100, 300
 dino_speed = 5
-dino_images = [pygame.image.load('images/character/c1.png'),
+stand_images = [pygame.image.load('images/character/c1.png'),
                pygame.image.load('images/character/c2.png')]
+walk_images = [pygame.image.load('images/character/w1.png'),
+               pygame.image.load('images/character/w2.png')]
+current_images = stand_images
 current_image = 0
 animation_time = 10
 current_time = 0
 kill_count = 0  # kill count
+facing_right = True
+is_moving = False  # Track whether the character is moving
+
+# Time variables
+last_frame_change_time = pygame.time.get_ticks()
+frame_change_interval = 250  # Change frame every __ milliseconds
 
 # Bullet variables
 bullets = []  # List to store bullets
@@ -36,6 +50,7 @@ enemies = []
 enemy_spawn_time = 5000  # 5 seconds in milliseconds
 enemy_spawn_count = 0
 last_spawn_time = pygame.time.get_ticks()
+enemy_image = pygame.image.load('images/enemy/pawn.png')
 
 # Base variables
 base_health = 10
@@ -45,15 +60,17 @@ base_size = (50, 50)  # Width and height of the base rectangle
 # Shooting mode variables
 shooting_mode = "pistol"  # Initial shooting mode
 
-# limit for shotgun
+# Range limit
 SHOTGUN_RANGE = 200
+PISTOL_RANGE = 350
 
+font_path = "font/PublicPixel-z84yD.ttf"
 
 def shoot_bullet(mouse_pos, spread_angle=0, is_shotgun=False):
     # Get character image size
-    img_width, img_height = dino_images[current_image].get_size()
+    img_width, img_height = stand_images[current_image].get_size()
 
-    # Calculate spawn position for the bullet (e.g., center-right of the character image)
+    # Calculate spawn position for the bullet
     spawn_x = dino_x + img_width / 2
     spawn_y = dino_y + img_height / 2
 
@@ -86,7 +103,7 @@ def spawn_enemy():
 
 def start_game(screen):
     global dino_x, dino_y, current_time, current_image, shooting_mode, last_spawn_time, base_health, game_state, \
-        enemy_spawn_time, enemy_spawn_count, kill_count
+        enemy_spawn_time, enemy_spawn_count, kill_count, last_frame_change_time, current_images, facing_right, font_path
     clock = pygame.time.Clock()
 
     running = True
@@ -101,10 +118,12 @@ def start_game(screen):
                 if event.type == pygame.KEYDOWN:
                     if event.key == pygame.K_r:  # Restart game
                         game_state = "playing"
-                        base_health = 10  # Reset base health
-                        enemies.clear()  # Clear existing enemies
-                        bullets.clear()  # Reset other necessary variables as needed
-                        dino_x, dino_y = 100, 300  # Reset dinosaur position or other states as needed
+                        base_health = 10
+                        enemies.clear()
+                        bullets.clear()
+                        dino_x, dino_y = 100, 300
+                        enemy_spawn_count = 0
+                        kill_count = 0
             if game_state == "playing":
                 # shoot a bullet for mouseclick
                 if event.type == pygame.MOUSEBUTTONDOWN:
@@ -142,23 +161,35 @@ def start_game(screen):
             keys = pygame.key.get_pressed()
             if keys[pygame.K_LEFT]:
                 dino_x -= dino_speed
+                facing_right = False
             if keys[pygame.K_RIGHT]:
                 dino_x += dino_speed
+                facing_right = True
             if keys[pygame.K_UP]:
                 dino_y -= dino_speed
             if keys[pygame.K_DOWN]:
                 dino_y += dino_speed
 
+            # Decide if we need to flip the image
+            current_frame = current_images[current_image]
+            if not facing_right:
+                current_frame = pygame.transform.flip(current_frame, True, False)
+
             # Prevent going outside the window
-            img_width, img_height = dino_images[current_image].get_size()
+            img_width, img_height = stand_images[current_image].get_size()
             dino_x = max(0, min(SCREEN_WIDTH - img_width, dino_x))
             dino_y = max(0, min(SCREEN_HEIGHT - img_height, dino_y))
 
-            # Update dinosaur animation
-            current_time += 1
-            if current_time >= animation_time:
-                current_time = 0
-                current_image = (current_image + 1) % len(dino_images)
+            is_moving = keys[pygame.K_LEFT] or keys[pygame.K_RIGHT] or keys[pygame.K_UP] or keys[pygame.K_DOWN]
+            if is_moving:
+                current_images = walk_images
+            else:
+                current_images = stand_images
+
+            if current_time - last_frame_change_time >= frame_change_interval:
+                current_image = (current_image + 1) % len(current_images)
+                last_frame_change_time = current_time
+
 
             if base_health <= 0:
                 game_state = "game_over"
@@ -167,7 +198,7 @@ def start_game(screen):
             screen.fill(WHITE)
 
             # Draw Character
-            screen.blit(dino_images[current_image], (dino_x, dino_y))
+            screen.blit(current_frame, (dino_x, dino_y))
 
             # Draw Bullet
             for bullet in bullets[:]:
@@ -181,11 +212,15 @@ def start_game(screen):
                     bullets.remove(bullet)
                     continue
 
+                if bullet[2] > PISTOL_RANGE:
+                    bullets.remove(bullet)
+                    continue
+
                 bullet_hit = False
                 for enemy in enemies[:]:
                     if enemy.is_collided_with_bullet(bullet):
-                        enemy.health -= 5  # Enemy loses health on collision
-                        bullets.remove(bullet)  # Remove the bullet
+                        enemy.health -= 5
+                        bullets.remove(bullet)
                         bullet_hit = True
                         break  # Stop checking for other collisions
                 if bullet_hit:
@@ -196,7 +231,7 @@ def start_game(screen):
             center_x, center_y = SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2
             for enemy in enemies:
                 enemy.move_towards_center(center_x, center_y)
-                pygame.draw.rect(screen, BLACK, (enemy.x, enemy.y, 20, 20))  # Draw enemy as a black rectangle
+                enemy.draw(screen)
                 enemy.draw_health_bar(screen)  # Draw enemy health bar
                 if enemy.health <= 0:
                     kill_count += 1
@@ -206,23 +241,24 @@ def start_game(screen):
                     enemies.remove(enemy)  # Remove the enemy that reached the base
 
             # Draw base
-            pygame.draw.rect(screen, (178, 34, 34), pygame.Rect(base_position, base_size))
+            base_image = pygame.image.load('images/base/bishop.png')
+            screen.blit(base_image, base_position)
 
             # Display base's health
-            font = pygame.font.Font(None, 36)
+            font = pygame.font.Font(font_path, 15)
             health_text = font.render(f"{base_health}/10", True, BLACK)
             screen.blit(health_text, (SCREEN_WIDTH - 150, 20))
 
             # Display kill count
-            font = pygame.font.Font(None, 36)
+            font = pygame.font.Font(font_path, 15)
             kill_text = font.render(f"Kill Count: {kill_count}", True, BLACK)
-            screen.blit(kill_text, (150, 20))
+            screen.blit(kill_text, (50, 20))
 
         elif game_state == "game_over":
             # Display game over message and restart option
             screen.fill(WHITE)  # Optional: Choose whether to clear screen or keep the last frame visible
-            font_big = pygame.font.Font(None, 74)
-            font_small = pygame.font.Font(None, 36)
+            font_big = pygame.font.Font(font_path, 74)
+            font_small = pygame.font.Font(font_path, 36)
             game_over_text = font_big.render("Game Over", True, BLACK)
             restart_text = font_small.render("Press R to Restart", True, BLACK)
             screen.blit(game_over_text, (
@@ -239,18 +275,23 @@ class Enemy:
         self.y = y
         self.speed = speed
         self.health = 10  # Each enemy starts with 10 health points
+        self.image = enemy_image
 
     def move_towards_center(self, center_x, center_y):
         direction = pygame.math.Vector2(center_x - self.x, center_y - self.y).normalize()
         self.x += direction.x * self.speed
         self.y += direction.y * self.speed
 
+    def draw(self, screen):
+        screen.blit(self.image, (self.x, self.y))  # Draw enemy image
+        self.draw_health_bar(screen)
+
     def draw_health_bar(self, screen):
         # Draw a red health bar above the enemy
-        health_bar_width = 20
+        health_bar_width = 24
         health_bar_height = 5
         fill_width = (self.health / 10) * health_bar_width
-        pygame.draw.rect(screen, (178, 34, 34), (self.x, self.y - health_bar_height - 5, fill_width, health_bar_height))
+        pygame.draw.rect(screen, (178, 34, 34), (self.x, self.y + 26, fill_width, health_bar_height))
 
     def is_collided_with_bullet(self, bullet):
         # Simple collision detection between enemy and bullet
