@@ -13,6 +13,7 @@ screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
 WHITE = (255, 255, 255)
 BLACK = (0, 0, 0)
 
+
 def display_menu():
     menu_font = pygame.font.Font(None, 40)  # Default font, size 40
     start_text = menu_font.render('Press SPACE to Start', True, BLACK)
@@ -38,6 +39,7 @@ def display_menu():
                 elif event.key == pygame.K_q:
                     pygame.quit()
                     sys.exit()
+
 
 if __name__ == '__main__':
     display_menu()
